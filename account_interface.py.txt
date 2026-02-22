@@ -1,0 +1,165 @@
+import cv2
+import os
+from deepface import DeepFace
+import re
+import sqlite3
+
+# Ensure captured_images directory exists
+os.makedirs("captured_images", exist_ok=True)
+
+# Connect to the database (replace 'your_database.db' with your actual database file)
+def get_user_info(account_number):
+    conn = sqlite3.connect('your_database.db')
+    cursor = conn.cursor()
+    
+    # Fetch user details by account number
+    cursor.execute("SELECT name, account_number, balance FROM users WHERE account_number = ?", (account_number,))
+    user = cursor.fetchone()
+    
+    conn.close()
+    
+    if user:
+        return user  # Returns a tuple: (name, account_number, balance)
+    else:
+        return None
+
+# Update balance after withdrawal
+def update_balance(account_number, new_balance):
+    conn = sqlite3.connect('your_database.db')
+    cursor = conn.cursor()
+    
+    # Update balance for the given account number
+    cursor.execute("UPDATE users SET balance = ? WHERE account_number = ?", (new_balance, account_number))
+    conn.commit()
+    conn.close()
+
+# Function to handle user registration (similar to previous)
+def user_registration():
+    name = input("Enter your full name: ")
+    account_number = input("Enter your account number: ")
+
+    print("\nPlease ensure your face is visible and press SPACE to capture your face...")
+
+    cap = cv2.VideoCapture(0)
+
+    # Check if webcam is successfully opened
+    if not cap.isOpened():
+        print("Error: Could not access the webcam.")
+        return
+
+    max_attempts = 10
+    attempts = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            attempts += 1
+            if attempts >= max_attempts:
+                print("Error: Could not capture frame from webcam.")
+                break
+            continue
+
+        cv2.imshow("Press SPACE to register your face or press 'q' to cancel", frame)
+
+        key = cv2.waitKey(10) & 0xFF  # Changed waitKey to 10 for better responsiveness
+        if key == ord(' '):  # SPACE key pressed
+            # Sanitize account number for filename
+            account_number_safe = re.sub(r'[^a-zA-Z0-9]', '_', account_number)
+            image_path = f"captured_images/{account_number_safe}.jpg"
+            cv2.imwrite(image_path, frame)
+            print("\nFace image captured successfully.")
+
+            # Use DeepFace to extract faces from the captured image
+            try:
+                faces = DeepFace.extract_faces(img_path=image_path, detector_backend='opencv')
+                if faces:
+                    print("Face extracted successfully.")
+                else:
+                    print("No faces detected in the image.")
+            except Exception as e:
+                print(f"Error during face extraction: {e}")
+
+            try:
+                # Here, you would add the user into your database
+                # This part can be handled using the add_user function (you can modify it to store the face data if needed)
+                add_user(name, account_number, image_path)
+                print("\nUser registration completed successfully!")
+            except Exception as e:
+                print(f"Error during user registration: {e}")
+
+            break  # Exit the loop once user registration is completed
+
+        elif key == ord('q'):  # 'q' key pressed
+            print("\nRegistration canceled.")
+            break
+
+    # Ensure cleanup even in case of errors
+    cap.release()
+    cv2.destroyAllWindows()
+
+# Face recognition and terminal interface
+def face_recognition_and_terminal():
+    print("Please make sure your face is visible to the camera...")
+
+    cap = cv2.VideoCapture(0)
+
+    if not cap.isOpened():
+        print("Error: Could not access the webcam.")
+        return
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Error: Could not capture frame from webcam.")
+            break
+
+        cv2.imshow("Face Recognition - Press 'q' to quit", frame)
+
+        # Use DeepFace to recognize the face (this will compare the captured face with stored faces)
+        try:
+            # Assuming the captured image is stored in the 'captured_images' folder
+            # Here, the 'account_number_safe' is used to uniquely identify the user
+            faces = DeepFace.extract_faces(img_path=frame, detector_backend='opencv')
+            if faces:
+                print("Face recognized successfully.")
+                # Assuming face recognition identifies the user based on account number
+                account_number = input("Enter your account number to retrieve details: ")
+                
+                user_info = get_user_info(account_number)
+
+                if user_info:
+                    name, account_number, balance = user_info
+                    print(f"Welcome {name}!")
+                    print(f"Account Number: {account_number}")
+                    print(f"Current Balance: ${balance:.2f}")
+                    
+                    # Ask for withdrawal
+                    withdraw_amount = float(input("Enter withdrawal amount: $"))
+                    if withdraw_amount > balance:
+                        print("Insufficient balance.")
+                    else:
+                        new_balance = balance - withdraw_amount
+                        update_balance(account_number, new_balance)
+                        print(f"Withdrawal successful. New balance: ${new_balance:.2f}")
+
+                else:
+                    print("Account number not found.")
+                break  # Exit the loop once the user is identified
+
+        except Exception as e:
+            print(f"Error during face recognition: {e}")
+
+        key = cv2.waitKey(10) & 0xFF
+        if key == ord('q'):  # 'q' key pressed
+            print("\nFace recognition canceled.")
+            break
+
+    # Cleanup
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    # Uncomment below to register a new user
+    # user_registration()
+
+    # Start face recognition and terminal interface
+    face_recognition_and_terminal()
